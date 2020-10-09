@@ -1,0 +1,96 @@
+// material para empezar
+// https://developers.google.com/earth-engine/tutorials/community/beginners-cookbook
+// Material en espaniol !!!
+// http://www.gisandbeers.com/scripts-para-google-earth-engine/
+var im = ee.Image("USGS/SRTMGL1_003"),
+    table = ee.FeatureCollection("users/marcosarg99/rectangulo"), // Limite del dominio
+    table2 = ee.FeatureCollection("users/marcosarg99/limites_interprovinciales"), // shp 
+    table3 = ee.FeatureCollection("users/marcosarg99/pais"),  // shp nacional
+    table4 = ee.FeatureCollection("users/marcosarg99/mount_out"), // csv con los RPFs fuera de Los Andes
+    table5 = ee.FeatureCollection("users/marcosarg99/mount_in");  // // csv con los RPFs dentro de Los Andes
+// Para hacer la barra de colores del SRTM
+function makeColorBarParams(palette) {
+  return {
+    bbox: [0, 0, 1, 0.1],
+    dimensions: '10x1',
+    format: 'png',
+    min: 0,
+    max: 1,
+    palette: palette,
+  };
+}
+var vis = {min: 0, max: 6500, palette: ['e8ffc6', 'd2ff8d', 'bbff54', '8dd026', 'ffe973', 'ffde2e', 'e7c300',
+  'b99c00', 'bf997e', 'aa7753', '955528', '7e3e11', '65320d', '3f1f08', 'dfccbe', 'e9ddd4', 'ffffff']}
+  //////////////////////////////////////////////////////////////////////////////////////////////////////
+  // selecciono el dato topografico
+  var dataset = ee.Image('USGS/SRTMGL1_003');
+  // selecciono la banda
+  var elevation = dataset.select('elevation');
+  var slope = ee.Terrain.slope(elevation);
+  // Parametros graficos
+  Map.setCenter(-69.0, -35.0, 6);
+  ///// Agrego la barra /////
+  Map.addLayer(elevation, vis, "SRTM 30mts");
+  var colorBar = ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: makeColorBarParams(vis.palette),
+    style: {stretch: 'horizontal', margin: '0px 8px', maxHeight: '24px'},
+  });
+  var legendLabels = ui.Panel({
+    widgets: [
+      ui.Label(vis.min, {margin: '4px 8px'}),
+      ui.Label(
+          (vis.max / 2),
+          {margin: '4px 8px', textAlign: 'center', stretch: 'horizontal'}),
+      ui.Label(vis.max, {margin: '4px 8px'})
+    ],
+    layout: ui.Panel.Layout.flow('horizontal')
+  });
+  
+  var legendTitle = ui.Label({
+    value: 'Terreno SRTM [mts]',
+    style: {fontWeight: 'bold'}
+  });
+  var legendPanel = ui.Panel([legendTitle, colorBar, legendLabels]);
+  // Finalmente se agrega la barra de colores
+  Map.add(legendPanel);
+  //////////////////////////////////////////////////////////////////////////////////////////////////////
+  // Agrego la grilla con frecuencias
+  // mejor paleta : ['f5f5f5','d6ca87','8f812f','73ff39','19c60e','fbff16','ffd22b','ffa825', 'ff5f12','ed0b3f','e71dff']
+  Map.addLayer(image.select('b1'), {min: 0, max: 3, palette : ['f5f5f5','d6ca87','8f812f','73ff39','19c60e','fbff16','ffd22b','ffa825', 'ff5f12','ed0b3f','e71dff']}, "Frecuencias relativas");
+  //////////////////////////////////////////////////////////////////////////////////////////////////////
+  // Para agregar los datos de los RPFs
+  // Son el 100% de los RFPs de TRMM
+  //Map.addLayer(table.select('geometry'), {color: 'FF0000'}, "RPFs");
+  // montaña adentro
+  Map.addLayer(table5.select('geometry'), {color: 'FF0000'}, "Montaña adentro");
+  // Montaña afuera
+  Map.addLayer(table4.select('geometry'), {color: '#0000FF'}, "Montaña afuera");
+  
+  // Para hacer contornos de terreno
+  var lines = ee.List.sequence(1198, 1202, 200)
+  // Funcion de contorno
+  var contourlines = lines.map(function(line) {
+    var mycontour = im
+      .convolve(ee.Kernel.gaussian(5, 3))
+      .subtract(ee.Image.constant(line)).zeroCrossing() 
+      .multiply(ee.Image.constant(line)).toFloat();
+      
+    return mycontour.mask(mycontour);
+  })
+  // construye los contornos
+  contourlines = ee.ImageCollection(contourlines).mosaic()
+  // Ahora si los grafica
+  Map.addLayer(contourlines, {min: 0, max: 5000, palette:['ff00ff', 'ff0000']}, 'Z500msnm CONT')
+  
+  // agrego los limites territoriales
+  Map.addLayer(table2.draw({color: '000000', strokeWidth: 5}), {}, "Prov");
+  // Para los paises como son poligonos cerrados hay que hacer un empty plot
+  var empty = ee.Image().byte();
+  var outline = empty.paint({
+    featureCollection: table3,
+    color: 1,
+    width: 3
+  });
+  Map.addLayer(outline, {}, "Pais");
+  
